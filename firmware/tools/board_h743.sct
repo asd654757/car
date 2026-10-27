@@ -1,0 +1,18 @@
+; Memory layout copied verbatim from the wildfire template's own uVision-generated
+; scatter (board/Project/RVMDK(uv5)/Output/Fire_H743XI_V.sct). Nothing here is invented:
+;   IROM 0x08000000 2MB, DTCM 0x20000000 128K, AXI SRAM 0x24000000 512K.
+
+LR_IROM1 0x08000000 0x00200000  {
+  ER_IROM1 0x08000000 0x00200000  {
+   *.o (RESET, +First)
+   *(InRoot$$Sections)
+   .ANY (+RO)
+   .ANY (+XO)
+  }
+  RW_IRAM1 0x20000000 0x00020000  {
+   .ANY (+RW +ZI)
+  }
+  RW_IRAM2 0x24000000 0x00080000  {
+   .ANY (+RW +ZI)
+  }
+}

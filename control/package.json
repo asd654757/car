@@ -1,0 +1,20 @@
+{
+  "name": "ws-mecanum-control",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "麦克纳姆四轮底盘控制核：Modbus RTU(WS伺服 Pn-303) + 麦轮运动学 + EEPROM限写 + 看门狗。逻辑与输入设备无关，便于移植到 STM32H743。",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "table": "node src/cli.js --table",
+    "check": "node --test \"test/*.test.js\" && node src/cli.js --table",
+    "preflight": "node src/cli.js --preflight",
+    "dry": "node src/cli.js --dry-run",
+    "start": "node src/cli.js",
+    "bench": "node src/cli.js --mps 0"
+  },
+  "dependencies": {
+    "serialport": "^12.0.0"
+  }
+}

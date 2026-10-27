@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>麦轮底盘 · 手柄/键盘调试台</title>
+<style>
+  :root { --bg:#12151a; --card:#1b2028; --line:#2b3340; --fg:#e6ebf2; --dim:#8d99ab; --ok:#3ddc84; --warn:#ffb020; --bad:#ff5252; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:20px; background:var(--bg); color:var(--fg); font:14px/1.6 "Microsoft YaHei",system-ui,sans-serif; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:var(--dim); font-size:12px; margin-bottom:16px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; }
+  .wide { grid-column:1 / -1; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .card h2 { font-size:13px; margin:0 0 10px; color:var(--dim); font-weight:600; letter-spacing:.5px; }
+  button { font:inherit; padding:10px 14px; border-radius:8px; border:1px solid var(--line); background:#232a35; color:var(--fg); cursor:pointer; }
+  button:hover { border-color:#4a5568; }
+  #estop { width:100%; background:var(--bad); color:#fff; border:none; font-size:16px; font-weight:700; padding:16px; }
+  #release { width:100%; margin-top:8px; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:12px; border:1px solid var(--line); }
+  .idle { color:var(--dim); } .run { color:var(--ok); border-color:var(--ok); } .estop,.fault { color:var(--bad); border-color:var(--bad); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td,th { padding:5px 4px; border-bottom:1px solid var(--line); text-align:left; }
+  th { color:var(--dim); font-weight:500; font-size:12px; }
+  .num { font-family:Consolas,monospace; text-align:right; }
+  .pad { display:grid; grid-template-columns:repeat(3,52px); grid-template-rows:repeat(3,40px); gap:6px; justify-content:center; margin:8px 0; }
+  .key { border:1px solid var(--line); border-radius:6px; display:flex; align-items:center; justify-content:center; color:var(--dim); font-size:12px; }
+  .key.on { background:var(--ok); color:#08240f; border-color:var(--ok); font-weight:700; }
+  #log { font-family:Consolas,monospace; font-size:12px; color:var(--dim); max-height:180px; overflow:auto; }
+  #log div { border-bottom:1px dotted #232a35; padding:2px 0; }
+  .warn { color:var(--warn); }
+  .stick { height:8px; background:#232a35; border-radius:4px; overflow:hidden; margin:3px 0 8px; }
+  .stick i { display:block; height:100%; background:var(--ok); }
+</style>
+</head>
+<body>
+<h1>麦轮底盘 · 手柄 / 键盘调试台</h1>
+<div class="sub">
+  符号矩阵来自 2026-10-09 实机标定（前轮 +、后轮 −）。当前档位的<b>车速上限</b>和<b>额定折算物理天花板</b>见下面「输入」那张卡，那两数由服务端算好推过来。<span class="warn">轮子离地/场地清场之前别用高档位；每次提速要重新做安全确认。</span>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>安全</h2>
+    <div style="margin-bottom:10px">状态 <span id="state" class="badge idle">—</span> <span id="reason" style="color:var(--dim);font-size:12px"></span></div>
+    <button id="estop">急 停（闭锁）</button>
+    <button id="release">解除闭锁</button>
+    <button id="zero" style="width:100%;margin-top:8px">松指令（写 0，不闭锁）</button>
+    <button id="quit" style="width:100%;margin-top:8px">退出程序（先把四轮写 0）</button>
+    <div style="margin-top:10px;color:var(--dim);font-size:12px">
+      手柄：左摇杆 = 前进/横移（斜推 = 斜行），<b>右摇杆水平 = 原地转</b>，左右扳机也能转，<b>Start(9) = 急停</b>，<b>Back(8) = 解除</b>，RB/LB = 升降档。<br>
+      键盘：WASD 移动、QE 转、空格急停、R 解除。<br>
+      松开摇杆 0.4 秒内四轮自动归零（上位看门狗，驱动器本身没有断线停车功能）。<br>
+      <span class="warn">退出请点上面那个按钮，或在终端按 Ctrl+C —— 别直接关窗口：跳过归零的话线上留着最后一个速度，车不会自己停。</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>输入</h2>
+    <div id="gp">未检测到手柄 —— 先按一下手柄上的任意键或推一下摇杆，Chrome 才会把它交给网页</div>
+    <div style="margin:10px 0">
+      幅度档 <span class="badge" id="gearTag">2/4</span>
+      <span style="color:var(--dim);font-size:12px">手柄 <b>RB</b>=升档 <b>LB</b>=降档（十字键↑↓同）· 键盘 1-4 · 当前档满杆 = <b id="gearRaw">—</b> raw（电机侧）≈ <b id="gearMps">—</b> m/s</span>
+      <div class="warn" id="gearHint" style="font-size:12px"></div>
+      <div style="color:var(--dim);font-size:12px;margin-top:4px">车速档上限 <b id="fsMps">—</b> m/s · 铭牌额定折算物理天花板 <b id="ratedMps">—</b> m/s（减速比/轮径为粗测，±10% 就是这个数的误差）</div>
+    </div>
+    <div>
+      <div>前进 vx <span class="num" id="vxv">0.00</span></div><div class="stick"><i id="vx" style="width:0"></i></div>
+      <div>左移 vy <span class="num" id="vyv">0.00</span></div><div class="stick"><i id="vy" style="width:0"></i></div>
+      <div>逆时针 wz <span class="num" id="wzv">0.00</span></div><div class="stick"><i id="wz" style="width:0"></i></div>
+    </div>
+    <div class="pad">
+      <div></div><div class="key" data-k="w">W</div><div></div>
+      <div class="key" data-k="a">A</div><div class="key" data-k="s">S</div><div class="key" data-k="d">D</div>
+      <div class="key" data-k="q">Q</div><div></div><div class="key" data-k="e">E</div>
+    </div>
+    <h2 style="margin-top:12px">轴调试（第一次用这只手柄时看这张表）</h2>
+    <table><thead><tr><th>轴</th><th class="num">原始值</th><th>标准映射里的用途</th></tr></thead><tbody id="axes"></tbody></table>
+    <div style="color:var(--dim);font-size:12px;margin-top:6px">按住的键：<b id="btns">无</b></div>
+    <div style="color:var(--dim);font-size:12px">推右摇杆看 ax3；如果它不动而 ax2 动了，这只手柄把右摇杆放在 ax2（代码已自动兼容）。</div>
+  </div>
+
+  <div class="card wide">
+    <h2>四轮指令（Pn-303 raw，电机侧）</h2>
+    <table><thead><tr><th>轮位</th><th>口/站</th><th>符号</th><th class="num">目标 raw</th><th class="num">线上 raw</th><th class="num">自报 rpm</th><th class="num">自报车速</th><th class="num">自报命令</th><th>跟随判定</th></tr></thead>
+    <tbody id="wheels"></tbody></table>
+    <div style="margin-top:8px;color:var(--dim);font-size:12px">
+      「自报」是心跳只读回来的 0x0706/0x0707，<b>电机侧</b> rpm；「自报车速」是按服务端那份减速比/轮径折算出来的<b>单轮线速度</b>（±10% 误差来自减速比是粗测）。<br>
+      它的正负由各台自己的 <span class="warn">Pn-000 方向位</span> 决定，<b>不等于</b>实物转向 —— 所以判定只比幅值。<br>
+      EEPROM 写入 <b id="writes">0</b> 次 · 推迟 <b id="deferred">0</b> 次 · 归零 <b id="stops">0</b> 次 · 写失败 <b id="failed" class="warn">0</b> 次
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>事件</h2>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const post = (p, body) => fetch(p, { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body||{}) }).then(r=>r.json()).catch(()=>({}));
+const DEAD = 0.12;
+const clamp = (v) => Math.max(-1, Math.min(1, v));
+const dz = (v) => Math.abs(v) < DEAD ? 0 : clamp(v);
+const input = { vx:0, vy:0, wz:0 };
+const keys = new Set();
+const KEYMAP = { w:'vx+', s:'vx-', a:'vy+', d:'vy-', q:'wz+', e:'wz-' };
+const GEARS = 4;
+let gear = 2;                 // 真正的起始档由服务端给（见 cfg.startGear），首次 /state 到达时覆盖
+let gearChosen = false;       // 人自己按过档位之后，就不再拿默认档去覆盖他
+let gearMps = null;           // 1..4 档各自的满杆车速，由服务端按量化后的线上值算
+let gearMpsKey = '';          // 上面那个数组的内容指纹：/state 每 250ms 一次，不比对内容就会一直白刷
+let slowStart = false;        // 服务端是否把起始档压到了 1/4（决定要不要显示那条提醒）
+let maxRaw = 300;             // 服务端限幅，由 /state 带回来显示
+let mech = { gearRatio: 30, wheelDiameterM: 0.2 }; // 只用于显示换算；真值是服务端那两份，界面不参与控制
+/** 电机侧 rpm → 该轮线速度 m/s（减速比与轮径都是粗测，所以这只是读数，不是标定） */
+const mpsFromMotorRpm = (rpm) => Math.abs(rpm) / mech.gearRatio * Math.PI * mech.wheelDiameterM / 60;
+
+function setGear(g, byUser = false) {
+  if (byUser) gearChosen = true;
+  gear = Math.max(1, Math.min(GEARS, g));
+  $('gearTag').textContent = `${gear}/${GEARS}`;
+  const raw = Math.round(maxRaw * gear / GEARS);
+  $('gearRaw').textContent = raw;
+  const mps = gearMps ? gearMps[gear - 1] : mpsFromMotorRpm(raw / 5);
+  $('gearMps').textContent = mps.toFixed(3);
+  // 起始档是服务端按满杆车速定的（>0.3 m/s 就从 1/4 起步），界面只负责把理由说给他看
+  $('gearHint').textContent = slowStart && gear === 1
+    ? `⚠ 服务端把起始档压到 1/4：这一档满杆已经是 ${mps.toFixed(2)} m/s，4/4 = ${(gearMps ? gearMps[3] : maxRaw / 5 / mech.gearRatio * Math.PI * mech.wheelDiameterM / 60).toFixed(2)} m/s。升档前先确认轮子离地或场地已清场。`
+    : '';
+}
+function fromKeyboard() {
+  const t = { vx:0, vy:0, wz:0 };
+  keys.forEach(k => { const m = KEYMAP[k]; if(!m) return; const ax = m.slice(0,2), sg = m[2]==='+'?1:-1; t[ax] = clamp(t[ax]+sg); });
+  return t;
+}
+
+/* 轴调试表：第一次用一只要么不报 mapping、要么把右摇杆放在别的轴上的手柄，靠这张表认清，不靠猜 */
+const AXES = [
+  '左摇杆 左右（右为正）',
+  '左摇杆 前后（下为正，取反成前进）',
+  '扳机合成轴（LT→−1 / RT→+1）；部分手柄这里是右摇杆左右',
+  '右摇杆 左右（原地转主用）',
+  '右摇杆 前后',
+  '十字键 / 额外轴',
+];
+$('axes').innerHTML = AXES.map((d, i) =>
+  `<tr><td>ax${i}</td><td class="num" id="axv${i}">0.00</td><td style="font-size:12px;color:var(--dim)">${d}</td></tr>`).join('');
+
+let prevBtn = [];
+function fromGamepad() {
+  const gp = (navigator.getGamepads?.() || []).find(g => g);
+  if (!gp) { prevBtn = []; return null; }
+  const ax = gp.buttons ? gp.axes || [] : [];
+  const btnNow = (gp.buttons || []).map(b => !!b.pressed);
+  const just = (i) => btnNow[i] && !prevBtn[i];
+  const t = { vx: -dz(ax[1] ?? 0), vy: -dz(ax[0] ?? 0), wz: 0 };
+
+  // 原地转：360/Xbox One 的标准映射里 ax2 是"两个扳机合成的一根轴"，右摇杆水平在 ax3。
+  // 老代码拿 ax2 当右摇杆 → 推右摇杆没反应，扣扳机反而在转。先看 ax3，它不动才退回 ax2。
+  const r3 = dz(ax[3] ?? 0), r2 = dz(ax[2] ?? 0), r5 = dz(ax[5] ?? 0);
+  if (r3) t.wz = -r3; else if (r2) t.wz = -r2; else if (r5) t.wz = -r5;
+  if (!t.wz) {
+    const lt = gp.buttons?.[6]?.value || 0, rt = gp.buttons?.[7]?.value || 0;
+    t.wz = clamp(dz(lt) - dz(rt));                      // 扳机也能转，左扳机 = 逆时针
+  }
+
+  if (just(9)) estop();                                  // Start = 急停（边沿触发，按住不会每帧重发）
+  if (just(8)) release();                                // Back  = 解除闭锁
+  if (just(5) || just(12)) setGear(gear + 1, true);      // RB / 十字上 = 升档
+  if (just(4) || just(13)) setGear(gear - 1, true);      // LB / 十字下 = 降档
+  prevBtn = btnNow;
+
+  $('gp').innerHTML = `已连接：<b>${(gp.id || '?').slice(0, 46)}</b> · mapping=${gp.mapping || '未报（按标准映射兜底）'} · 轴 ${ax.length}`;
+  AXES.forEach((_, i) => {
+    const el = $('axv' + i); if (!el) return;
+    const v = ax[i];
+    el.textContent = v === undefined ? '—' : v.toFixed(2);
+    el.style.color = v !== undefined && Math.abs(v) >= DEAD ? 'var(--ok)' : '';
+  });
+  $('btns').textContent = btnNow.map((p, i) => p ? i : -1).filter(i => i >= 0).join(' ') || '无';
+  return t;
+}
+function estop() { if (!estop.armed) { estop.armed = true; post('/estop'); setTimeout(()=>estop.armed=false, 800); } }
+function release() { post('/release'); }
+
+addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if (KEYMAP[k]) { keys.add(k); mark(); e.preventDefault(); }
+  else if (k === ' ') { estop(); e.preventDefault(); }
+  else if (k === 'r') release();
+  else if (k === 'x') { keys.clear(); mark(); post('/stop'); }
+  else if (k >= '1' && k <= '4') { setGear(Number(k), true); e.preventDefault(); }
+});
+addEventListener('keyup', (e) => { const k = e.key.toLowerCase(); if (KEYMAP[k]) { keys.delete(k); mark(); } });
+addEventListener('blur', () => { keys.clear(); mark(); });
+$('estop').onclick = estop; $('release').onclick = release;
+$('zero').onclick = () => { keys.clear(); mark(); post('/stop'); $('reason').textContent = '已下发松指令'; };
+
+let lastPost = 0;
+function loop(now) {
+  const g = fromGamepad();
+  const t = g || fromKeyboard();
+  const scaled = { vx: t.vx * gear / GEARS, vy: t.vy * gear / GEARS, wz: t.wz * gear / GEARS };
+  const changed = Math.abs(scaled.vx-input.vx)+Math.abs(scaled.vy-input.vy)+Math.abs(scaled.wz-input.wz) > 0.01;
+  Object.assign(input, scaled);
+  ['vx','vy','wz'].forEach(k => {
+    $(k).style.width = Math.abs(input[k])*100 + '%';
+    $(k).style.background = input[k] >= 0 ? 'var(--ok)' : 'var(--warn)';
+    $(k+'v').textContent = input[k].toFixed(2);
+  });
+  if (now - lastPost > 50 && (changed || Math.abs(input.vx)+Math.abs(input.vy)+Math.abs(input.wz) > 0)) {
+    lastPost = now; post('/twist', input);
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+$('quit').onclick = async () => {
+  if (!confirm('退出程序：先把四轮写 0 再关进程，确认？')) return;
+  keys.clear(); mark();
+  const r = await post('/quit');
+  $('reason').textContent = r && r.ok ? '正在归零后退出…' : '退出请求失败，用终端 Ctrl+C';
+};
+function mark() { document.querySelectorAll('.key').forEach(el => el.classList.toggle('on', keys.has(el.dataset.k))); }
+setGear(gear);
+
+async function poll() {
+  try {
+    const j = (await (await fetch('/state')).json());
+    const s = j.snapshot;
+    if (j.cfg) {
+      let reset = false;
+      if (Number.isFinite(j.cfg.maxRaw) && j.cfg.maxRaw !== maxRaw) { maxRaw = j.cfg.maxRaw; reset = true; }
+      if (j.cfg.mech && (j.cfg.mech.gearRatio !== mech.gearRatio || j.cfg.mech.wheelDiameterM !== mech.wheelDiameterM)) { mech = j.cfg.mech; reset = true; }
+      if (Array.isArray(j.cfg.gearMps)) {
+        const key = j.cfg.gearMps.map((v) => v.toFixed(1)).join(','); // /state 每次都是新数组，只能按内容比，否则每 250ms 白刷一遍
+        if (key !== gearMpsKey) { gearMpsKey = key; gearMps = j.cfg.gearMps; reset = true; }
+      }
+      if (Number.isFinite(j.cfg.startGear)) {
+        const wantSlow = j.cfg.startGear === 1;
+        if (wantSlow !== slowStart) { slowStart = wantSlow; reset = true; }
+        if (!gearChosen && gear !== j.cfg.startGear) { gear = j.cfg.startGear; reset = true; } // 人还没动过档位才允许服务端定默认档
+      }
+      if (reset) setGear(gear);
+      if (Number.isFinite(j.cfg.fullScaleMps)) $('fsMps').textContent = j.cfg.fullScaleMps.toFixed(3);
+      if (Number.isFinite(j.cfg.ratedMps)) $('ratedMps').textContent = j.cfg.ratedMps.toFixed(3);
+      else $('ratedMps').textContent = '未标定额转速';
+    }
+    const b = $('state'); b.textContent = s.state; b.className = 'badge ' + (s.state === 'run' ? 'run' : (s.state === 'idle' ? 'idle' : s.state.toLowerCase()));
+    $('reason').textContent = s.reason + ' · ' + s.action;
+    $('writes').textContent = s.eeprom.writes; $('deferred').textContent = s.eeprom.deferred; $('stops').textContent = s.eeprom.stops;
+    $('failed').textContent = s.eeprom.failed || 0;
+    $('wheels').innerHTML = s.wheels.map(w => {
+      const exp = Math.abs(w.onWire) / 5;                                        // 期望电机侧 rpm
+      const got = w.driveSpd === null || w.driveSpd === undefined ? null : Math.abs(w.driveSpd);
+      const judge = got === null ? '还没读到'
+        : exp === 0 ? (got <= 3 ? '停 ✓' : '<span class="warn">还在转 ⚠</span>')
+        : Math.abs(got - exp) <= Math.max(4, exp * 0.2) ? '跟上了 ✓' : '<span class="warn">差得远 ⚠</span>';
+      return `<tr><td>${w.id} ${w.name}</td><td>${w.port}/站${w.slave}</td><td>${w.sign>0?'+':'−'}</td>`
+        + `<td class="num">${w.target}</td><td class="num">${w.onWire}</td>`
+        + `<td class="num">${got === null ? '—' : w.driveSpd}</td><td class="num">${got === null ? '—' : mpsFromMotorRpm(got).toFixed(3)}</td>`
+        + `<td class="num">${w.driveCmd ?? '—'}</td><td>${judge}</td></tr>`;
+    }).join('');
+    $('log').innerHTML = s.events.map(e => `<div>${e.t.slice(11,19)} ${e.msg}</div>`).join('');
+  } catch (e) { $('state').textContent = '离线'; }
+}
+setInterval(poll, 250); poll();
+</script>
+</body>
+</html>
